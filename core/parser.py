@@ -3,34 +3,30 @@
 :mod:`core.parser` is a module containing class for parsing log files.
 '''
 
-from core import PATTERN_ECB, FIELDS_ECB, \
-    LOG_TYPES
 import mmap
 import os
 import re
 import traceback
-from types import ListType
 import platform
+from types import ListType
+
+from module import ModuleController as mc
 
 class Parser(object):
     '''
     Parser for benchmark outputs.
         :param filename: Name of the log file
         :type filename: str.
+        :param module: Current module used to parse file
+        :type module: object.
     '''
 
-    def __init__(self, filename='', logtype=''):
-
-        if logtype not in LOG_TYPES:
-            raise Exception("Logtype {} is not one of {}".format(logtype, LOG_TYPES))
+    def __init__(self, filename='', module=None):
+        if module is None:
+            raise Exception("Should choose a module to parse the log file.")
         self._info = {}
-        self._logtype = logtype.split("-")[0]
-        self._logsubtype = logtype.split("-")[1]
-        self.__file_date = ''
+        self._module = module
         self.__filename = filename
-        self.__delimeter = "**********"
-
-        self.__ecb_fields = None
 
         return None
 
@@ -82,8 +78,7 @@ class Parser(object):
             try:
                 fhandle = os.open(self.__filename, os.O_RDONLY)
             except OSError:
-                print(("Couldn't open file %s" % (self.__filename)))
-                fhandle = None
+                raise Exception(("Couldn't open file {}".format(self.__filename)))
 
             if fhandle:
 
@@ -112,7 +107,7 @@ class Parser(object):
                 # Here we'll store chunks of file, unparsed
                 searchunks = []
                 oldchunkpos = 0
-                dlpos = parmap.find(self.__delimeter, 0)
+                dlpos = parmap.find(self._module.delimeter(), 0)
                 size = 0
 
                 # We can do mmap.size() only on read-only mmaps
@@ -133,9 +128,9 @@ class Parser(object):
                     try:
                         parmap.seek(2, os.SEEK_CUR)
                     except ValueError:
-                        print(("Out of bounds (%s)!\n" % (parmap.tell())))
+                        print(("Out of bounds ({})!\n".format(parmap.tell())))
                     # Now we repeat find.
-                    dlpos = parmap.find(self.__delimeter)
+                    dlpos = parmap.find(self._module.delimeter())
 
                 # If it wasn't the end of file, we want last piece of it
                 if oldchunkpos < size:
@@ -164,8 +159,7 @@ class Parser(object):
         pattern = None
         # If parts is a list
         if type(parts) is ListType:
-            if self._logtype == "ECB":
-                pattern = re.compile(PATTERN_ECB)
+            pattern = self._module.pattern()
 
             if pattern is None:
                 return False
@@ -229,43 +223,5 @@ class Parser(object):
             completely parsed into meaningful data for further processing
         '''
         # Common assigner
-        fields = None
-        results = []
-        if self._logtype == "ECB":
-            fields = FIELDS_ECB
 
-        if fields is None:
-            return False
-
-        for part in parts:
-            result = {}
-            for sectionname in fields:
-                value = part[sectionname]
-                if sectionname == 'buffer_size':
-                    value = self.__convert_size(value)
-                if sectionname == 'chunk_size':
-                    value = self.__convert_size(value)
-                if sectionname == 'total_data_size':
-                    value = self.__convert_size(value)
-                value = self.__as_number_otherwise_string(value)
-                result[sectionname] = value
-            results.append(result)
-
-        return results
-
-    def __convert_size(self, string):
-        if string[len(string) - 2:] == 'KB':
-            return float(string[0:len(string) - 2]) * 1024
-        if string[len(string) - 2:] == 'MB':
-            return float(string[0:len(string) - 2]) * 1024 * 1024
-        if string[len(string) - 2:] == 'GB':
-            return float(string[0:len(string) - 2]) * 1024 * 1024 * 1024
-
-    def __as_number_otherwise_string(self, string):
-        try:
-            return int(string)
-        except:
-            try:
-                return float(string)
-            except:
-                return string
+        return self._module.split_info(parts)
